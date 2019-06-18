@@ -29,7 +29,7 @@ int main() {
 
     // Create DoomGame instance. It will run the game and communicate with you.
     auto *game = new DoomGame();
-    game->loadConfig("basic2.cfg");
+    game->loadConfig("basic1.cfg");
     game->init();
 
 
@@ -49,30 +49,27 @@ int main() {
         actions[i] = action;
     }*/
 
-    actions[0] = {0, 1, 0};
-    actions[1] = {1, 0, 0};
-    actions[2] = {0, 0, 1};
+    actions[0] = {0, 1, 0, 0};
+    actions[1] = {1, 0, 0, 0};
+    actions[2] = {0, 0, 0, 1};
 
 
-    std::srand(time(0));
+    std::srand(time(nullptr));
 
     // Run this many episodes
-    int episodes = 2000;
+    int episodes = 20;
     // Sets time that will pause the engine after each action.
     // Without this everything would go too fast for you to keep track of what's happening.
-    unsigned int sleepTime = 2000 / DEFAULT_TICRATE; // = 28
-
-
-
-    namedWindow("centers", WINDOW_AUTOSIZE);
+    unsigned int sleepTime = 1000 / DEFAULT_TICRATE; // = 28
 
     Mat now(game->getScreenHeight(), game->getScreenWidth(), CV_8UC3);
     Mat diff(game->getScreenHeight(), game->getScreenWidth(), CV_8UC3);
-    Mat prev(game->getScreenHeight(), game->getScreenWidth(), CV_8UC3);
+    Mat1b prev(game->getScreenHeight(), game->getScreenWidth(), CV_8UC3);
 
     const int d = 150;
 
-    for (int i = 0; i < episodes; ++i) {
+    double itog = 0;
+    for (int i = 0; i < 20; ++i) {
 
         std::cout << "Episode #" << i + 1 << "\n";
 
@@ -94,40 +91,20 @@ int main() {
             // BufferPtr is std::shared_ptr<Buffer> where Buffer is std::vector<uint8_t>
             std::vector<Label> labels = state->labels;
 
-            prev = now.clone();
-
             for (int k = 0; k < now.rows; ++k) {
                 for (int j = 0; j < now.cols; ++j) {
                     auto vectorCoord = 3 * (k * now.cols + j);
 
-                    now.at<uchar>(k, 3 * j + 0) = (*screenBuf)[vectorCoord + 2];
-                    now.at<uchar>(k, 3 * j + 1) = (*screenBuf)[vectorCoord + 1];
-                    now.at<uchar>(k, 3 * j + 2) = (*screenBuf)[vectorCoord + 0];
-                }
-            }
-
-
-
-            for (int k = 0; k < now.rows; ++k) {
-                for (int j = 0; j < now.cols; ++j) {
-                    int b = now.at<uchar>(k, 3 * j + 0);
-                    int g = now.at<uchar>(k, 3 * j + 1);
-                    int r = now.at<uchar>(k, 3 * j + 2);
-
-                    int b1 = prev.at<uchar>(k, 3 * j + 0);
-                    int g1 = prev.at<uchar>(k, 3 * j + 1);
-                    int r1 = prev.at<uchar>(k, 3 * j + 2);
-
-                    int B = abs(b - b1);
-                    int G = abs(g - g1);
-                    int R = abs(r - r1);
+                    int r = (*screenBuf)[vectorCoord + 2];
+                    int g = (*screenBuf)[vectorCoord + 1];
+                    int b = (*screenBuf)[vectorCoord + 0];
 
                     double A = sqrt(0.299 * r * r + 0.587 * g * g + 0.114 * b * b);
 
                     if (A > d) {
-                        diff.at<uchar>(k, 3 * j + 0) = A;
-                        diff.at<uchar>(k, 3 * j + 1) = A;
-                        diff.at<uchar>(k, 3 * j + 2) = A;
+                        diff.at<uchar>(k, 3 * j + 0) = 255;
+                        diff.at<uchar>(k, 3 * j + 1) = 255;
+                        diff.at<uchar>(k, 3 * j + 2) = 255;
                     } else {
                         diff.at<uchar>(k, 3 * j + 0) = 0;
                         diff.at<uchar>(k, 3 * j + 1) = 0;
@@ -138,8 +115,8 @@ int main() {
 
             std::vector<Point> pts;
             std::vector<int> labls;
-            cvtColor(diff, prev, COLOR_RGB2GRAY);
 
+            cvtColor(diff, prev, COLOR_RGB2GRAY);
             findNonZero(prev, pts);
 
             double dst = 3, dst2 = dst * dst;
@@ -159,11 +136,6 @@ int main() {
             for (int k = 0; k < nLabels; ++k) {
                 middles[k].x /= count[k];
                 middles[k].y /= count[k];
-            }
-
-
-
-            for (int k = 0; k < nLabels; ++k) {
 
                 if(middles[k].y > 0.56 * game->getScreenHeight()) {
                     middles.erase(middles.begin() + k--);
@@ -171,18 +143,12 @@ int main() {
                 }
             }
 
-            Mat m(game->getScreenHeight(), game->getScreenWidth(), CV_8UC3);
-            for (int k = 0; k < nLabels; ++k) {
-                circle(m, middles[k], 10, viz::Color(255,255,255));
-            }
-
-            imshow("centers", m);
-            if(middles[0].x < game->getScreenWidth() / 2 - 10)
-                game->makeAction(actions[1]);
-            else if (middles[0].x > game->getScreenWidth() / 2 + 10)
-                game->makeAction(actions[0]);
+            if(middles[0].x < game->getScreenWidth() / 2 - 25)
+                std::cout << game->makeAction(actions[1]) << ' ';
+            else if (middles[0].x > game->getScreenWidth() / 2 + 25)
+                std::cout << game->makeAction(actions[0]) << ' ';
             else
-                game->makeAction(actions[2]);
+                std::cout << game->makeAction(actions[2]) << ' ';
 
 
 
@@ -200,7 +166,7 @@ int main() {
 
             std::cout << nLabels << std::endl;*/
 
-            waitKey(200);
+            waitKey(30);
 
             // Make random action and get reward
 
@@ -220,14 +186,20 @@ int main() {
             //std::cout << "Game variables: " << vars[0] << "\n";
             //std::cout << "Action reward: " << reward << "\n";
             //std::cout << "=====================\n";
+            sleep(sleepTime);
         }
+
 
         std::cout << "Episode finished.\n";
         std::cout << "Total reward: " << game->getTotalReward() << "\n";
         std::cout << "************************\n";
+        itog += game->getTotalReward();
     }
-    cvDestroyWindow("name");
+
+    std::cout << itog / 20;
+
     // It will be done automatically in destructor but after close You can init it again with different settings.
     game->close();
     delete game;
+
 }
