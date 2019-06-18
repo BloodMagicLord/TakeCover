@@ -11,6 +11,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/calib3d/calib3d.hpp>
+#include <opencv2/viz/types.hpp>
 #include <highgui.h>
 
 void sleep(unsigned int time) {
@@ -28,65 +29,7 @@ int main() {
 
     // Create DoomGame instance. It will run the game and communicate with you.
     auto *game = new DoomGame();
-
-    // Sets path to vizdoom engine executive which will be spawned as a separate process. Default is "./vizdoom".
-    game->setViZDoomPath("/headless/base/ViZDoom/bin/vizdoom");
-
-    // Sets path to doom2 iwad resource file which contains the actual doom game-> Default is "./doom2.wad".
-    game->setDoomGamePath("/headless/base/ViZDoom/bin/freedoom2.wad");
-    //game->setDoomGamePath("../../bin/doom2.wad");      // Not provided with environment due to licences.
-
-    // Sets path to additional resources iwad file which is basically your scenario iwad.
-    // If not specified default doom2 maps will be used and it's pretty much useless... unless you want to play doom.
-    game->setDoomScenarioPath("//headless/base/ViZDoom/scenarios/basic.wad");
-
-    // Set map to start (scenario .wad files can contain many maps).
-    game->setDoomMap("map01");
-
-    // Sets resolution. Default is 320X240
-
-    // Sets the screen buffer format. Not used here but now you can change it. Default is CRCGCB.
-    game->setScreenFormat(RGB24);
-
-    // Sets other rendering options
-    game->setRenderHud(true);
-    game->setRenderMinimalHud(false); // If hud is enabled
-    game->setRenderCrosshair(true);
-    game->setRenderWeapon(true);
-    game->setRenderDecals(false);
-    game->setRenderParticles(false);
-    game->setRenderEffectsSprites(true);
-    game->setRenderMessages(false);
-    game->setRenderCorpses(false);
-
-    // Adds buttons that will be allowed.
-    game->addAvailableButton(MOVE_RIGHT);
-    game->addAvailableButton(MOVE_LEFT);
-    game->addAvailableButton(ATTACK);
-
-
-    // Adds game variables that will be included in state.
-    game->addAvailableGameVariable(AMMO2);
-
-    // Causes episodes to finish after 200 tics (actions)
-    game->setEpisodeTimeout(20000);
-
-    // Makes episodes start after 10 tics (~after raising the weapon)
-    game->setEpisodeStartTime(10);
-
-    // Makes the window appear (turned on by default)
-    game->setWindowVisible(true);
-
-    // Turns on the sound. (turned off by default)
-    game->setSoundEnabled(false);
-
-    // Sets ViZDoom mode (PLAYER, ASYNC_PLAYER, SPECTATOR, ASYNC_SPECTATOR, PLAYER mode is default)
-    game->setMode(PLAYER);
-
-    // Enables engine output to console.
-    //game->setConsoleEnabled(true);
-
-    // Initialize the game. Further configuration won't take any effect from now on.
+    game->loadConfig("basic2.cfg");
     game->init();
 
 
@@ -95,7 +38,7 @@ int main() {
     // game.getAvailableButtonsSize() can be used to check the number of available buttons.
     // more combinations are naturally possible but only 3 are included for transparency when watching.
     std::vector<double> actions[game->getAvailableButtons().size()];
-    for (int i = 0; i < game->getAvailableButtonsSize(); i++) {
+    /*for (int i = 0; i < game->getAvailableButtonsSize(); i++) {
         std::vector<double> action;
         for (int j = 0; j < game->getAvailableButtonsSize(); j++) {
             if (j == i)
@@ -104,7 +47,12 @@ int main() {
                 action.push_back(0);
         }
         actions[i] = action;
-    }
+    }*/
+
+    actions[0] = {0, 1, 0};
+    actions[1] = {1, 0, 0};
+    actions[2] = {0, 0, 1};
+
 
     std::srand(time(0));
 
@@ -115,14 +63,14 @@ int main() {
     unsigned int sleepTime = 2000 / DEFAULT_TICRATE; // = 28
 
 
-    namedWindow("diff", WINDOW_AUTOSIZE);
+
+    namedWindow("centers", WINDOW_AUTOSIZE);
 
     Mat now(game->getScreenHeight(), game->getScreenWidth(), CV_8UC3);
     Mat diff(game->getScreenHeight(), game->getScreenWidth(), CV_8UC3);
     Mat prev(game->getScreenHeight(), game->getScreenWidth(), CV_8UC3);
 
-    const int d = 120;
-
+    const int d = 150;
 
     for (int i = 0; i < episodes; ++i) {
 
@@ -174,7 +122,7 @@ int main() {
                     int G = abs(g - g1);
                     int R = abs(r - r1);
 
-                    double A = sqrt(0.299 * R * R + 0.587 * G * G + 0.114 * B * B);
+                    double A = sqrt(0.299 * r * r + 0.587 * g * g + 0.114 * b * b);
 
                     if (A > d) {
                         diff.at<uchar>(k, 3 * j + 0) = A;
@@ -190,32 +138,71 @@ int main() {
 
             std::vector<Point> pts;
             std::vector<int> labls;
-            Mat1b img = diff;
-            findNonZero(img, pts);
+            cvtColor(diff, prev, COLOR_RGB2GRAY);
 
-            int dst = 30, dst2 = dst * dst;
+            findNonZero(prev, pts);
+
+            double dst = 3, dst2 = dst * dst;
             int nLabels = cv::partition(pts, labls, [dst2](const Point& lhs, const Point& rhs) {
                 return (hypot(lhs.x - rhs.x, lhs.y - rhs.y) < dst2);
             });
 
-            std::vector<Vec3b> colors;
+            std::vector<Point> middles(nLabels);
+            std::vector<int> count(nLabels, 0);
+
+            for (int k = 0; k < pts.size(); ++k) {
+                count[labls[k]]++;
+                middles[labls[k]].x += pts[k].x;
+                middles[labls[k]].y += pts[k].y;
+            }
+
+            for (int k = 0; k < nLabels; ++k) {
+                middles[k].x /= count[k];
+                middles[k].y /= count[k];
+            }
+
+
+
+            for (int k = 0; k < nLabels; ++k) {
+
+                if(middles[k].y > 0.56 * game->getScreenHeight()) {
+                    middles.erase(middles.begin() + k--);
+                    nLabels--;
+                }
+            }
+
+            Mat m(game->getScreenHeight(), game->getScreenWidth(), CV_8UC3);
+            for (int k = 0; k < nLabels; ++k) {
+                circle(m, middles[k], 10, viz::Color(255,255,255));
+            }
+
+            imshow("centers", m);
+            if(middles[0].x < game->getScreenWidth() / 2 - 10)
+                game->makeAction(actions[1]);
+            else if (middles[0].x > game->getScreenWidth() / 2 + 10)
+                game->makeAction(actions[0]);
+            else
+                game->makeAction(actions[2]);
+
+
+
+            /*std::vector<Vec3b> colors;
             for (int k = 0; k < nLabels; ++k) {
                 colors.emplace_back(rand() & 255, rand() & 255, rand() & 255);
             }
 
-            Mat3b lbl(diff.rows, diff.cols, Vec3b(0, 0, 0));
+            Mat3b lbl(game->getScreenHeight(), game->getScreenWidth(), Vec3b(0, 0, 0));
             for (int k = 0; k < pts.size(); ++k) {
                 lbl(pts[k]) = colors[labls[k]];
             }
 
             imshow("diff", lbl);
 
-            std::cout << nLabels << std::endl;
+            std::cout << nLabels << std::endl;*/
 
             waitKey(200);
 
             // Make random action and get reward
-            double reward = game->makeAction(actions[std::rand() % game->getAvailableButtonsSize()]);
 
             // You can also get last reward by using this function
             // double reward = game->getLastReward();
