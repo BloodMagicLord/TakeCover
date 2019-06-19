@@ -33,9 +33,6 @@ int main() {
     auto *game = new DoomGame();
     game->loadConfig("health_gathering2.cfg");
     game->init();
-
-
-    std::vector<double> actions[4];
     /* Цикл for, который создаст по одному action для каждой кнопки
      * for (int i = 0; i < game->getAvailableButtonsSize(); i++) {
         std::vector<double> action;
@@ -48,10 +45,7 @@ int main() {
         actions[i] = action;
     }*/
 
-    actions[0] = {1, 0, 0};
-    actions[1] = {0, 1, 0};
-    actions[2] = {0, 0, 1};
-    actions[3] = {1, 0, 0};
+    vector<double> didaction = {0, 1, 0};
 
 
     std::srand(time(nullptr));
@@ -67,8 +61,10 @@ int main() {
     Mat now(game->getScreenHeight(), game->getScreenWidth(), CV_8UC3);
     Mat1b prev(game->getScreenHeight(), game->getScreenWidth(), CV_8UC3);
     Mat3b lbl(game->getScreenHeight(), game->getScreenWidth(), Vec3b(0, 0, 0));
-    const int d = 185;
+    const int d = 190;
 
+    bool moved;
+    int notMoved = 0;
     double itog = 0;
     for (int i = 0; i < 1; ++i) {
 
@@ -78,6 +74,8 @@ int main() {
         game->newEpisode();
 
         while (!game->isEpisodeFinished()) {
+
+            moved = false;
 
             // Get the state
             GameStatePtr state = game->getState(); // GameStatePtr is std::shared_ptr<GameState>
@@ -134,116 +132,118 @@ int main() {
 
             std::vector<Point> pts;
             std::vector<int> labls;
+            cvtColor(diff, prev, COLOR_RGB2GRAY);
+            findNonZero(prev, pts);
+            double dst = 7, dst2 = dst * dst;
+            int nLabels = 0;
+            if (pts.size() > 1) {
+                nLabels = cv::partition(pts, labls, [dst2](const Point &lhs, const Point &rhs) {
+                    return (hypot(lhs.x - rhs.x, lhs.y - rhs.y) < dst2);
+                });
+            } else {
+                game->makeAction(didaction);
+                continue;
+            }
 
-            if (!diff.empty()) {
-                cvtColor(diff, prev, COLOR_RGB2GRAY);
-                if (!prev.empty()) {
-                    findNonZero(prev, pts);
-                    if (!pts.empty()) {
-                        double dst = 5, dst2 = dst * dst;
-                        int nLabels = 0;
-                        if (pts.size() > 1) {
-                            nLabels = cv::partition(pts, labls, [dst2](const Point &lhs, const Point &rhs) {
-                                return (hypot(lhs.x - rhs.x, lhs.y - rhs.y) < dst2);
-                            });
-                        } else {
-                            game->makeAction(actions[3]);
-                        }
+            if (nLabels == 0)
+                continue;
+            std::vector<Point> middles(nLabels);
+            std::vector<Point> goout;
+            std::vector<int> count(nLabels, 0);
+            std::vector<vector<int>> RLTB;
 
-                        if (nLabels == 0)
-                            continue;
-                        std::vector<Point> middles(nLabels);
-                        std::vector<Point> goout;
-                        std::vector<int> count(nLabels, 0);
-                        std::vector<vector<int>> RLTB;
+            for (int k = 0; k < nLabels; ++k) {
+                vector<int> tmp = {game->getScreenWidth(), 0, game->getScreenHeight(), 0};
+                RLTB.push_back(tmp);
+            }
 
-                        for (int k = 0; k < nLabels; ++k) {
-                            vector<int> tmp = {game->getScreenWidth(), 0, game->getScreenHeight(), 0};
-                            RLTB.push_back(tmp);
-                        }
+            for (int k = 0; k < pts.size(); ++k) {
+                count[labls[k]]++;
+                middles[labls[k]].x += pts[k].x;
+                middles[labls[k]].y += pts[k].y;
 
-                        for (int k = 0; k < pts.size(); ++k) {
-                            count[labls[k]]++;
-                            middles[labls[k]].x += pts[k].x;
-                            middles[labls[k]].y += pts[k].y;
+                if (RLTB[labls[k]][0] > pts[k].x)
+                    RLTB[labls[k]][0] = pts[k].x;
+                if (RLTB[labls[k]][1] < pts[k].x)
+                    RLTB[labls[k]][1] = pts[k].x;
+                if (RLTB[labls[k]][2] > pts[k].y)
+                    RLTB[labls[k]][2] = pts[k].y;
+                if (RLTB[labls[k]][3] < pts[k].y)
+                    RLTB[labls[k]][3] = pts[k].y;
+            }
+            for (int k = 0; k < nLabels; ++k) {
 
-                            if (RLTB[labls[k]][0] > pts[k].x)
-                                RLTB[labls[k]][0] = pts[k].x;
-                            if (RLTB[labls[k]][1] < pts[k].x)
-                                RLTB[labls[k]][1] = pts[k].x;
-                            if (RLTB[labls[k]][2] > pts[k].y)
-                                RLTB[labls[k]][2] = pts[k].y;
-                            if (RLTB[labls[k]][3] < pts[k].y)
-                                RLTB[labls[k]][3] = pts[k].y;
-                        }
-                        for (int k = 0; k < nLabels; ++k) {
-                            middles[k].x /= count[k];
-                            middles[k].y /= count[k];
+                middles[k].x /= count[k];
+                middles[k].y /= count[k];
 
-                            int hgt = abs(RLTB[k][1] - RLTB[k][0]);
-                            int wdt = abs(RLTB[k][3] - RLTB[k][2]);
+                int hgt = abs(RLTB[k][1] - RLTB[k][0]);
+                int wdt = abs(RLTB[k][3] - RLTB[k][2]);
 
-                            if (middles[k].y > 0.8 * game->getScreenHeight() || wdt > hgt) {
+                if (middles[k].y > 0.79 * game->getScreenHeight() || wdt > hgt) {
 
-                                if (wdt > hgt)
-                                    goout.push_back(middles[k]);
+                    if (wdt > hgt)
+                        goout.push_back(middles[k]);
 
-                                middles.erase(middles.begin() + k);
-                                RLTB.erase(RLTB.begin() + k);
-                                count.erase(count.begin() + k--);
-                                nLabels--;
-                            }
-                        }
-
-                        if (nLabels <= 0) {
-                            game->makeAction(actions[3]);
-                        } else {
-
-                            int K = 0, max = 0;
-                            for (int j = 0; j < nLabels; ++j) {
-                                if (count[j] > max) {
-                                    max = count[j];
-                                    K = j;
-                                }
-                            }
-
-                            for (int j = 0; j < goout.size(); ++j) {
-                                if (goout[j].x >= game->getScreenWidth() / 2 - 20 and
-                                    goout[j].x <= game->getScreenWidth() / 2 + 20) {
-                                    game->makeAction(actions[3]);
-                                    break;
-                                }
-                            }
-
-                            if (middles[K].x < game->getScreenWidth() / 2 - 5) {
-                                game->makeAction({1, 0, 1});
-                            } else if (middles[K].x > game->getScreenWidth() / 2 + 5) {
-                                game->makeAction({0, 1, 1});
-                            } else {
-                                game->makeAction({0, 0, 1});
-                            }
-                        }
-                        // Make random action and get reward
-
-                        // You can also get last reward by using this function
-                        // double reward = game->getLastReward();
-
-                        // Makes a "prolonged" action and skip frames.
-                        //int skiprate = 4
-                        //double reward = game.makeAction(choice(actions), skiprate)
-
-                        // The same could be achieved with:
-                        //game.setAction(choice(actions))
-                        //game.advanceAction(skiprate)
-                        //reward = game.getLastReward()
-
-                        //std::cout << "State #" << n << "\n";
-                        //std::cout << "Game variables: " << vars[0] << "\n";
-                        //std::cout << "Action reward: " << reward << "\n";
-                    }
+                    middles.erase(middles.begin() + k);
+                    RLTB.erase(RLTB.begin() + k);
+                    count.erase(count.begin() + k--);
+                    nLabels--;
                 }
             }
 
+            if (nLabels <= 0) {
+                game->makeAction(didaction);
+            } else {
+
+                int K = 0, max = 0;
+                for (int j = 0; j < nLabels; ++j) {
+                    if (count[j] > max) {
+                        max = count[j];
+                        K = j;
+                    }
+                }
+
+                if (middles[K].x < game->getScreenWidth() / 2 - 10) {
+                    game->makeAction({1, 0, 1});
+                    didaction = {1, 0, 0};
+                } else if (middles[K].x > game->getScreenWidth() / 2 + 10) {
+                    game->makeAction({0, 1, 1});
+                    didaction = {0, 1, 0};
+                }
+
+                bool cnt = false;
+                for (auto &j : goout) {
+                    if (j.x >= game->getScreenWidth() / 2 - 20 and
+                        j.x <= game->getScreenWidth() / 2 + 20) {
+                        game->makeAction(didaction);
+                        cnt = true;
+                        break;
+                    }
+                }
+
+                if (cnt)
+                    continue;
+
+                game->makeAction({0, 0, 1});
+            }
+
+            // Make random action and get reward
+
+            // You can also get last reward by using this function
+            // double reward = game->getLastReward();
+
+            // Makes a "prolonged" action and skip frames.
+            //int skiprate = 4
+            //double reward = game.makeAction(choice(actions), skiprate)
+
+            // The same could be achieved with:
+            //game.setAction(choice(actions))
+            //game.advanceAction(skiprate)
+            //reward = game.getLastReward()
+
+            //std::cout << "State #" << n << "\n";
+            //std::cout << "Game variables: " << vars[0] << "\n";
+            //std::cout << "Action reward: " << reward << "\n";
         }
 
 
